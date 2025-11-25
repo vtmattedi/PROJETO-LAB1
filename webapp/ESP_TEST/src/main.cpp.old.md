@@ -71,18 +71,13 @@ void onButtonClick(int btn_id)
 
 void swap_turns()
 {
-    return;
     player1_turn = !player1_turn;
     setCurrentPlayer(player1_turn);
     setCurrentLabel(player1_turn ? player1_pos : player2_pos);
 }
-static int count = 0;
-extern lv_obj_t * currentLabel;
+
 void shift_player()
 {
-    count = 0;
-    lv_label_set_text(currentLabel, String(count).c_str());
-    return;
     byte first = player1_turn ? player1_map[0] : player2_map[0];
     for (int i = 0; i < 63; i++)
     {
@@ -128,21 +123,18 @@ void setup()
     Serial.begin(115200); /* prepare for possible serial debug */
     board_init();
     lvgl_init();
-
+    setOnButtonClickCallback(onButtonClick);
+    // Initialize game state
+    for (int i = 0; i < 64; i++)
+    {
+        player1_map[i] = random(0, 4);
+        player2_map[i] = random(0, 4);
+    }
+    Timers.create("Serial", 1, sendSerial);
 }
 
 void loop()
 {
+    Timers.run();
     lv_timer_handler();
-    if (Serial.available())
-    {
-        while (Serial.available())
-        {
-            count ++;
-            byte incoming = Serial.read();
-            Serial.write(incoming); // Echo back for debug
-            lv_label_set_text(currentLabel, String(count).c_str());
-        }
-        
-    }
 }

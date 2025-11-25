@@ -1,96 +1,13 @@
-const { SerialPort } = require('serialport');
+
 const express = require('express');
 const { Server } = require('socket.io');
+const { GameState } = require('./gamelogic');
+const { setOnFrameReceived,
+    startSerial,
+    sendFrame,
+    listPorts } = require('./serialManager.js');
 
-const listPorts = async () => {
-    try {
-        const ports = await SerialPort.list();
-        if (!ports.length) {
-            console.log('No serial ports found.');
-            return;
-        }
-        ports.forEach(p => {
-            console.log(`Path: ${p.path}`);
-            if (p.manufacturer) console.log(`  Manufacturer: ${p.manufacturer}`);
-            if (p.serialNumber) console.log(`  Serial Number: ${p.serialNumber}`);
-            if (p.pnpId) console.log(`  PnP ID: ${p.pnpId}`);
-            if (p.locationId) console.log(`  Location ID: ${p.locationId}`);
-            if (p.vendorId) console.log(`  Vendor ID: ${p.vendorId}`);
-            if (p.productId) console.log(`  Product ID: ${p.productId}`);
-        });
-    } catch (err) {
-        console.error('Failed to list ports:', err);
-    }
-};
-
-const sp = new SerialPort({ path: 'COM14', baudRate: 115200 });
-sp.on('open', () => {
-    console.log('Serial Port Opened', sp.path, sp.baudRate);
-});
-GAMESTATE = [];
-game_index = 0;
-let t = null;
-const game = {
-    player1: {
-        pos: { x: 0, y: 0 },
-        score: 0,
-        map: []
-    },
-    player2: {
-        pos: { x: 0, y: 0 },
-        score: 0,
-        map: []
-    }
-};
-
-const parseGameState = () => {
-    let index = 0;
-    game.player1.map = [];
-    game.player2.map = [];
-    for (let i = 0; i < 64; i++) {
-        game.player1.map[i] = GAMESTATE[index];
-        index++;
-    }
-    for (let i = 0; i < 64; i++) {
-        game.player2.map[i] = GAMESTATE[index];
-        index++;
-    }
-    game.player1.score = GAMESTATE[index];
-    index++;
-    game.player2.score = GAMESTATE[index];
-    index++;
-    const p1pos = GAMESTATE[index];
-    game.player1.pos = {
-        x: (p1pos >> 4) & 0x0F,
-        y: p1pos & 0x0F
-    };
-    index++;
-    const p2pos = GAMESTATE[index];
-    game.player2.pos = {
-        x: (p2pos >> 4) & 0x0F,
-        y: p2pos & 0x0F
-    };
-}
-
-const printGS = () => {
-    for (let i = 0; i < GAMESTATE.length; i++) {
-        const char = GAMESTATE[i];
-        process.stdout.write(String.fromCharCode(char));
-    }
-}
-sp.on('data', (data) => {
-    for (let i = 0; i < data.length; i++) {
-        GAMESTATE[game_index] = data[i];
-        game_index++;
-        if (game_index >= 132) {
-            game_index = 0;
-            parseGameState();
-            console.log(game);
-            io.emit('gamestate', game);
-            //printGS();
-        }
-    };
-});
+const gameState = new GameState();
 
 const app = express();
 app.use(express.static('./Frontend/dist'));
@@ -107,9 +24,34 @@ const io = new Server(server, {
 
 const port = 3000;
 
+const sendMapUpdate = (mapData) => {
+   const frame = mapData;
+   frame.push(0); // p1 score
+   frame.push(0); // p1 cursor
+   //replicate for p2
+   for (let i = 0; i < 66; i++) {
+       frame.push(frame[i]); 
+   }
+    sendFrame(frame);
+}
+
 io.on('connection', (socket) => {
-    console.log('New client connected:', socket.id);
+    const slot = gameState.playerJoin(socket.id);
+    console.log('New client connected:', socket.id, 'assigned to slot', slot);
+    socket.emit('playerNum', `${slot}`);
     socket.on('disconnect', () => {
         console.log('Client disconnected:', socket.id);
+        gameState.playerLeave(socket.id);
+        console.log('Slot freed for client:', socket.id);
     });
+    socket.on('map', (data) => {
+        console.log(`Received map data from player ${data.player}`);
+        io.emit('map', data);
+        sendMapUpdate(data.map);
+    });
+});
+// startSerial();
+setOnFrameReceived((frame, game) => {
+    io.emit('map', { player: 2, map: game.player2.map });
+    console.log('sending player 2 map via socket.io', game.player2.map.length);
 });
