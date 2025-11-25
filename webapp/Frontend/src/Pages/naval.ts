@@ -20,7 +20,7 @@ export const ShipType = {
     CRUISER: 'Cruiser',
     UNKNOWN: 'Water'
 } as const;
-type ShipType = typeof ShipType[keyof typeof ShipType];
+export type ShipType = typeof ShipType[keyof typeof ShipType];
 
 const ship_type = (byte: number) => {
     const value = byte & 0x1F; // 5 lower bits
